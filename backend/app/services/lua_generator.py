@@ -18,9 +18,12 @@ class LuaGenerator:
 local scriptName = "RecoilStudio_SCRIPT"
 local showLog = true                    -- 是否打印日志
 local clickBtn = 1                      -- 触发按键 (左键=1)
+local smoothSteps = 8                   -- 平滑压枪段数：每发子弹拆成多次小移动，越大越柔和
+local smoothPollInterval = 4            -- 平滑等待检查间隔：用于尽快识别松开左键
+local retriggerWindow = 300             -- 左键重捕窗口：松开后短时间内重新按下，不依赖新的左键事件
 
 -- 按键配置
-local toggleBtn = 6                     -- 压枪开关 (G6键)
+local toggleBtn = 2                     -- 压枪开关 (右键=2)
 local gunSwitchUpBtn = 8                -- 切换下一把枪 (DPI+)
 local gunSwitchDnBtn = 7                -- 切换上一把枪 (DPI-)
 local resetPointBtn = 5                 -- 鼠标复位开关 (前进键)
@@ -119,13 +122,54 @@ function applyMovement(rawY, rawX)
     local totalY = rawY + errorY
     local totalX = rawX + errorX
     
-    local moveY = math.floor(totalY)
-    local moveX = math.floor(totalX)
+    local moveY = totalY >= 0 and math.floor(totalY) or math.ceil(totalY)
+    local moveX = totalX >= 0 and math.floor(totalX) or math.ceil(totalX)
     
     errorY = totalY - moveY
     errorX = totalX - moveX
     
     return moveY, moveX
+end
+
+function waitUntilPressed(targetTime)
+    -- 按真实运行时间等待，避免多次 Sleep(1) 累计误差导致压枪速度变慢
+    while IsMouseButtonPressed(clickBtn) do
+        local remainTime = targetTime - GetRunningTime()
+        if remainTime <= 0 then
+            return true
+        end
+
+        if remainTime > smoothPollInterval then
+            Sleep(smoothPollInterval)
+        else
+            Sleep(remainTime)
+        end
+    end
+
+    return false
+end
+
+function sleepWhilePressed(ms)
+    if ms <= 0 then
+        return IsMouseButtonPressed(clickBtn)
+    end
+
+    -- 使用目标时间等待，保证等待时长接近原始射速节奏
+    return waitUntilPressed(GetRunningTime() + math.floor(ms))
+end
+
+function waitForReTrigger(ms)
+    local endTime = GetRunningTime() + math.floor(ms)
+
+    -- 左键松开后短时间主动捕捉下一次按下，避免 OnEvent 忙碌时丢失快速二次触发
+    while GetRunningTime() < endTime do
+        if IsMouseButtonPressed(clickBtn) then
+            return true
+        end
+        Sleep(smoothPollInterval)
+    end
+
+    return false
 end
 
 function switchGun(delta)
@@ -191,34 +235,79 @@ function beginRecoilControl()
     local gun = getCurrentGun()
     local sleepTime = getSleepTime()
     
-    currentBullet = 0
+    -- 随机缓动指数，控制子步位移分配节奏，避免匀速分帧被检测
+    local easeK = 0.90 + math.random() * 0.20
+    local easeSteps = smoothSteps
+    if easeSteps < 1 then easeSteps = 1 end
+    local easeWeights = {}
+    local invSteps = 1.0 / easeSteps
+    for i = 1, easeSteps do
+        easeWeights[i] = (i * invSteps) ^ easeK - ((i - 1) * invSteps) ^ easeK
+    end
+    
     totalMoveY = 0
     totalMoveX = 0
-    errorY = 0
-    errorX = 0
     
     log("Start recoil control: %s, interval=%dms", gun.name, sleepTime)
 
     repeat
-        currentBullet = currentBullet + 1
+        currentBullet = 0
+        errorY = 0
+        errorX = 0
+        local keepShooting = true
 
-        local rawY, rawX = getBulletRecoil(currentBullet)
-        local moveY, moveX = applyMovement(rawY, rawX)
+        repeat
+            currentBullet = currentBullet + 1
 
-        totalMoveY = totalMoveY + moveY
-        totalMoveX = totalMoveX + moveX
+            local rawY, rawX = getBulletRecoil(currentBullet)
+            local bulletMoveY = 0
+            local bulletMoveX = 0
+            local bulletStartTime = GetRunningTime()
+            for i = 1, easeSteps do
+                if not IsMouseButtonPressed(clickBtn) then
+                    keepShooting = false
+                    break
+                end
 
-        if moveY ~= 0 or moveX ~= 0 then
-            MoveMouseRelative(moveX, moveY)
-        end
+                -- 每一小段继续使用误差累计，保证平滑后总位移仍尽量贴近原始弹道
+                local moveY, moveX = applyMovement(rawY * easeWeights[i], rawX * easeWeights[i])
 
-        log("Bullet #%d: move=(%d,%d)", currentBullet, moveY, moveX)
+                bulletMoveY = bulletMoveY + moveY
+                bulletMoveX = bulletMoveX + moveX
+                totalMoveY = totalMoveY + moveY
+                totalMoveX = totalMoveX + moveX
 
-        Sleep(sleepTime)
+                if moveY ~= 0 or moveX ~= 0 then
+                    MoveMouseRelative(moveX, moveY)
+                end
 
-    until currentBullet >= #gun.pattern or not IsMouseButtonPressed(clickBtn)
-    
-    log("Stop at bullet #%d", currentBullet)
+                if i < easeSteps then
+                    -- 每段按固定时间点执行，既保持平滑，也避免 Sleep 误差拖慢整体射速
+                    local stepTime = bulletStartTime + math.floor(sleepTime * i / easeSteps)
+                    if not waitUntilPressed(stepTime) then
+                        keepShooting = false
+                        break
+                    end
+                end
+            end
+
+            if not keepShooting then
+                break
+            end
+
+            log("Bullet #%d: smoothMove=(%d,%d)", currentBullet, bulletMoveY, bulletMoveX)
+
+            -- 等到下一发理论时间点，保持原有 RPM 射速节奏不变
+            if not waitUntilPressed(bulletStartTime + sleepTime) then
+                keepShooting = false
+                break
+            end
+
+        until currentBullet >= #gun.pattern or not keepShooting
+
+        log("Stop at bullet #%d", currentBullet)
+
+    until not waitForReTrigger(retriggerWindow)
     
     if resetPointState and (totalMoveY ~= 0 or totalMoveX ~= 0) then
         resetMousePosition()
@@ -228,13 +317,13 @@ end
 function resetMousePosition()
     log("Resetting mouse position...")
     
-    local steps = 10
+    local steps = 20
     local stepY = math.floor(-totalMoveY / steps)
     local stepX = math.floor(-totalMoveX / steps)
     
     for i = 1, steps do
         MoveMouseRelative(stepX, stepY)
-        Sleep(1)
+        Sleep(4)
     end
     
     local remainY = -totalMoveY - (stepY * steps)
