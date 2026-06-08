@@ -259,6 +259,9 @@ function beginRecoilControl()
     local gun = getCurrentGun()
     local sleepTime = getSleepTime()
     
+    -- 模拟人类反应延迟，避免按下瞬间立即补偿被检测
+    Sleep(math.random(20, 50))
+    
     -- 随机缓动指数，控制子步位移分配节奏，避免匀速分帧被检测
     local easeK = 0.90 + math.random() * 0.20
     local easeSteps = smoothSteps
