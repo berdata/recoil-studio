@@ -41,7 +41,7 @@ local adsHorizontalSens = %ADS_HORIZONTAL_SENS%    -- 举枪瞄准水平灵敏�
 local screenDistCoeff = %SCREEN_DIST_COEFF%        -- 屏幕距离系数
 local baseFOV = %BASE_FOV%                         -- 基础视场角(度)
 local holdBreath = %HOLD_BREATH%                    -- 是否屏息
-local baseSens = %MOUSE_SENS%                      -- 基准灵敏度（弹道数据录制时的灵敏度）
+local baseSens = 5                                 -- 弹道数据标定时的鼠标灵敏度，默认按项目基准5计算
 
 --====================================================================================
 -- 枪械配置
@@ -66,14 +66,34 @@ local errorX = 0
 -- 辅助函数
 --====================================================================================
 
+-- 保护灵敏度除法，避免手动改配置时出现0或负数导致补偿失效
+function safeSens(value)
+    if value == nil or value <= 0 then
+        return 1
+    end
+    return value
+end
+
+-- 计算指定FOV半角在MDV屏幕距离上的视角；MDV标准写法是 atan(coeff * tan(fov/2))
+function calcMonitorDistanceAngle(halfFovRad, coeff)
+    if coeff <= 0 then
+        -- MDV为0时匹配准星中心，使用极限值避免 atan(0)/atan(0)
+        return math.tan(halfFovRad)
+    end
+    return math.atan(math.tan(halfFovRad) * coeff)
+end
+
 -- 计算倍镜灵敏度比 (scoped_sens / base_sens)
--- 基于屏幕距离系数模型: 使用3D→2D投影的三角函数换算
+-- 基于MDV/FOV换算：先由倍率得到开镜FOV，再按屏幕距离系数计算灵敏度比例
 function calcScopeSensRatio(zoom)
     if zoom <= 1 then return 1 end
     local rad = math.pi / 180
     local halfBaseRad = baseFOV / 2 * rad
     local halfScopedRad = math.atan(math.tan(halfBaseRad) / zoom)
-    return math.tan(halfScopedRad * screenDistCoeff) / math.tan(halfBaseRad * screenDistCoeff)
+    local baseAngle = calcMonitorDistanceAngle(halfBaseRad, screenDistCoeff)
+    local scopedAngle = calcMonitorDistanceAngle(halfScopedRad, screenDistCoeff)
+    if baseAngle == 0 then return 1 end
+    return scopedAngle / baseAngle
 end
 
 function getSleepTime()
@@ -98,13 +118,17 @@ function getBulletRecoil(bulletIndex)
 
     local recoil = pattern[bulletIndex]
 
-    -- 灵敏度修正计算
-    local sensRatio = baseSens / mouseSens
-    -- 倍镜修正: 灵敏度比<1说明开镜后灵敏度降低, 补偿量需要除以该比值(即放大)
+    -- 灵敏度修正计算：游戏灵敏度越高，同样角度需要的鼠标移动量越少，所以补偿量按灵敏度倒数缩放
+    local sensRatio = baseSens / safeSens(mouseSens)
+    local verticalSensFactor = 1 / safeSens(verticalSens)
+    local horizontalSensFactor = 1 / safeSens(horizontalSens)
+    local adsSensFactor = 1 / safeSens(adsSensMul)
+
+    -- 倍镜修正：灵敏度比<1说明开镜后灵敏度降低，补偿量需要除以该比值
     local scopeSensRatio = calcScopeSensRatio(gun.scopeZoom)
     local scopeFactor = 1 / scopeSensRatio
-    local adsVertFactor = adsSensMul * adsVerticalSens * scopeFactor
-    local adsHorizFactor = adsSensMul * adsHorizontalSens * scopeFactor
+    local adsVertFactor = adsSensFactor * (1 / safeSens(adsVerticalSens)) * scopeFactor
+    local adsHorizFactor = adsSensFactor * (1 / safeSens(adsHorizontalSens)) * scopeFactor
 
     -- 屏息修正
     local breathFactor = 1
@@ -112,8 +136,8 @@ function getBulletRecoil(bulletIndex)
         breathFactor = gun.holdBreathCoeff
     end
 
-    local moveY = recoil.y * gun.verticalMul * sensRatio * verticalSens * adsVertFactor * breathFactor
-    local moveX = recoil.x * gun.horizontalMul * sensRatio * horizontalSens * adsHorizFactor * breathFactor
+    local moveY = recoil.y * gun.verticalMul * sensRatio * verticalSensFactor * adsVertFactor * breathFactor
+    local moveX = recoil.x * gun.horizontalMul * sensRatio * horizontalSensFactor * adsHorizFactor * breathFactor
 
     return moveY, moveX
 end
