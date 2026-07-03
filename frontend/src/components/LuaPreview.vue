@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { api, type GunConfig, type SensitivitySettings, defaultSensitivity } from '../api'
+import { copyTextToClipboard } from '../utils/clipboard'
 
 const props = defineProps<{
   guns: GunConfig[]
@@ -40,9 +41,9 @@ watch([() => props.guns, sens], async () => {
   }
 }, { immediate: true, deep: true })
 
-function copyToClipboard() {
-  navigator.clipboard.writeText(luaCode.value)
-  alert('已复制到剪贴板')
+async function copyToClipboard() {
+  const copied = await copyTextToClipboard(luaCode.value)
+  alert(copied ? '已复制到剪贴板' : '复制失败，请手动选择代码复制')
 }
 
 function formatRpm(gun: GunConfig) {

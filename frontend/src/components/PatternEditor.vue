@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { api, type FireRateSegment, type Point, type RecoilData } from '../api'
+import { copyTextToClipboard } from '../utils/clipboard'
 
 const props = defineProps<{
   points: Point[]
@@ -976,19 +977,9 @@ watch([outputScaleX, outputScaleY], () => {
 })
 
 // 复制 Lua 代码
-function copyLuaCode() {
-  navigator.clipboard.writeText(luaPatternCode.value).then(() => {
-    alert('已复制到剪贴板')
-  }).catch(() => {
-    // fallback
-    const textarea = document.createElement('textarea')
-    textarea.value = luaPatternCode.value
-    document.body.appendChild(textarea)
-    textarea.select()
-    document.execCommand('copy')
-    document.body.removeChild(textarea)
-    alert('已复制到剪贴板')
-  })
+async function copyLuaCode() {
+  const copied = await copyTextToClipboard(luaPatternCode.value)
+  alert(copied ? '已复制到剪贴板' : '复制失败，请手动选择代码复制')
 }
 </script>
 
