@@ -140,12 +140,14 @@ function parseDataInput() {
 </script>
 
 <template>
-  <div class="upload-container">
-    <!-- 预览模式 -->
+  <div class="upload-workspace">
     <div v-if="previewMode" class="preview-mode">
       <div class="preview-header">
-        <h3>识别结果预览</h3>
-        <span class="preview-info">识别到 {{ previewPoints.length }} 个弹道点</span>
+        <div>
+          <span class="section-kicker">识别结果</span>
+          <h3>确认弹道点</h3>
+        </div>
+        <span class="preview-info">{{ previewPoints.length }} 个点 / {{ previewPattern.length }} 发</span>
       </div>
       
       <div class="preview-content">
@@ -155,7 +157,7 @@ function parseDataInput() {
             <polyline
               :points="previewPoints.map(p => `${p.x},${p.y}`).join(' ')"
               fill="none"
-              stroke="rgba(102, 126, 234, 0.6)"
+              stroke="rgba(32, 201, 151, 0.65)"
               stroke-width="2"
             />
             <circle
@@ -164,7 +166,7 @@ function parseDataInput() {
               :cx="point.x"
               :cy="point.y"
               r="5"
-              fill="#667eea"
+              fill="#20c997"
               stroke="#fff"
               stroke-width="1"
             />
@@ -192,88 +194,96 @@ function parseDataInput() {
       </div>
     </div>
     
-    <!-- 上传模式 -->
     <div v-else>
-      <div class="tabs">
-        <button 
-          :class="['tab', { active: activeTab === 'image' }]" 
-          @click="activeTab = 'image'"
-        >
-          上传弹道图
-        </button>
-        <button 
-          :class="['tab', { active: activeTab === 'data' }]" 
-          @click="activeTab = 'data'"
-        >
-          导入弹道数据
-        </button>
-      </div>
-      
-      <!-- 图片上传 -->
-      <div v-if="activeTab === 'image'" class="tab-content">
-        <div class="params">
-          <div class="param">
-            <label>X缩放</label>
-            <input type="number" v-model.number="scaleX" step="0.1" min="0.1" max="10" />
+      <div class="import-grid">
+        <aside class="import-panel">
+          <span class="section-kicker">输入源</span>
+          <h3>选择弹道来源</h3>
+          <div class="source-switch">
+            <button
+              :class="['source-option', { active: activeTab === 'image' }]"
+              type="button"
+              @click="activeTab = 'image'"
+            >
+              <span>弹道图识别</span>
+              <small>上传带标记的图片</small>
+            </button>
+            <button
+              :class="['source-option', { active: activeTab === 'data' }]"
+              type="button"
+              @click="activeTab = 'data'"
+            >
+              <span>弹道数据导入</span>
+              <small>粘贴 Lua / JSON / 文本</small>
+            </button>
           </div>
-          <div class="param">
-            <label>Y缩放</label>
-            <input type="number" v-model.number="scaleY" step="0.1" min="0.1" max="10" />
-          </div>
-          <div class="param">
-            <label>点间距</label>
-            <input type="number" v-model.number="minDist" min="1" max="20" />
-          </div>
-        </div>
+        </aside>
 
-        <div
-          :class="['drop-zone', { dragging: isDragging, loading: isLoading }]"
-          @dragover.prevent="isDragging = true"
-          @dragleave="isDragging = false"
-          @drop.prevent="handleDrop"
-          @click="($refs.fileInput as HTMLInputElement).click()"
-        >
-          <input
-            ref="fileInput"
-            type="file"
-            accept="image/*"
-            hidden
-            @change="handleFileInput"
-          />
-          
-          <div v-if="isLoading" class="loading">
-            <div class="spinner"></div>
-            <p>正在识别弹道...</p>
+        <section class="import-stage">
+          <div v-if="activeTab === 'image'" class="image-import">
+            <div class="params">
+              <div class="param">
+                <label>X缩放</label>
+                <input type="number" v-model.number="scaleX" step="0.1" min="0.1" max="10" />
+              </div>
+              <div class="param">
+                <label>Y缩放</label>
+                <input type="number" v-model.number="scaleY" step="0.1" min="0.1" max="10" />
+              </div>
+              <div class="param">
+                <label>点间距</label>
+                <input type="number" v-model.number="minDist" min="1" max="20" />
+              </div>
+            </div>
+
+            <div
+              :class="['drop-zone', { dragging: isDragging, loading: isLoading }]"
+              @dragover.prevent="isDragging = true"
+              @dragleave="isDragging = false"
+              @drop.prevent="handleDrop"
+              @click="($refs.fileInput as HTMLInputElement).click()"
+            >
+              <input
+                ref="fileInput"
+                type="file"
+                accept="image/*"
+                hidden
+                @change="handleFileInput"
+              />
+
+              <div v-if="isLoading" class="loading">
+                <div class="spinner"></div>
+                <p>正在识别弹道...</p>
+              </div>
+
+              <div v-else class="placeholder">
+                <div class="file-icon" aria-hidden="true"></div>
+                <strong>拖拽弹道图到这里</strong>
+                <span>或点击选择 PNG / JPG 文件</span>
+              </div>
+            </div>
           </div>
-          
-          <div v-else class="placeholder">
-            <div class="icon">📁</div>
-            <p>拖拽弹道图到这里</p>
-            <p class="sub">或点击选择文件</p>
+
+          <div v-if="activeTab === 'data'" class="data-import">
+            <div class="format-block">
+              <span class="section-kicker">支持格式</span>
+              <p>JSON、Lua 表达式、每行 Y/X 数值都可以解析。</p>
+              <code>[{"y": 10, "x": 2}]</code>
+              <code>{y=10, x=2}</code>
+              <code>10, 2</code>
+            </div>
+
+            <textarea
+              v-model="dataInput"
+              placeholder="粘贴弹道数据..."
+              rows="13"
+            ></textarea>
+
+            <button class="btn btn-primary" type="button" @click="parseDataInput" :disabled="!dataInput.trim()">
+              导入数据
+            </button>
           </div>
-        </div>
-      </div>
-      
-      <!-- 数据导入 -->
-      <div v-if="activeTab === 'data'" class="tab-content">
-        <div class="data-import">
-          <p class="hint">支持以下格式：</p>
-          <ul class="format-list">
-            <li>JSON: <code>[{"y": 10, "x": 2}, ...]</code></li>
-            <li>Lua: <code>{y=10, x=2}, {y=8, x=-1}, ...</code></li>
-            <li>简单: <code>10, 2</code> (每行一发，Y和X用逗号分隔)</li>
-          </ul>
-          
-          <textarea 
-            v-model="dataInput" 
-            placeholder="粘贴弹道数据..."
-            rows="10"
-          ></textarea>
-          
-          <button class="btn btn-primary" @click="parseDataInput" :disabled="!dataInput.trim()">
-            导入数据
-          </button>
-        </div>
+        </section>
       </div>
 
       <div v-if="error" class="error">{{ error }}</div>
@@ -282,51 +292,85 @@ function parseDataInput() {
 </template>
 
 <style scoped>
-.upload-container {
+.upload-workspace {
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
 
-.tabs {
-  display: flex;
+.import-grid {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 16px;
+  min-height: 560px;
+}
+
+.import-panel,
+.import-stage {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.import-panel {
+  padding: 18px;
+}
+
+.import-panel h3 {
+  margin: 6px 0 18px;
+  font-size: 1.2rem;
+}
+
+.section-kicker {
+  color: var(--primary);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.source-switch {
+  display: grid;
   gap: 10px;
-  border-bottom: 1px solid #333;
-  padding-bottom: 10px;
 }
 
-.tab {
-  padding: 10px 20px;
-  background: transparent;
-  border: none;
-  color: #888;
+.source-option {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  min-height: 76px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
   cursor: pointer;
-  font-size: 1rem;
-  border-radius: 6px 6px 0 0;
-  transition: all 0.2s;
+  text-align: left;
 }
 
-.tab:hover {
-  color: #fff;
-  background: rgba(255,255,255,0.05);
+.source-option small {
+  color: var(--muted);
 }
 
-.tab.active {
-  color: #fff;
-  background: rgba(102, 126, 234, 0.2);
-  border-bottom: 2px solid #667eea;
+.source-option.active {
+  border-color: rgba(39, 214, 163, 0.5);
+  background: rgba(39, 214, 163, 0.1);
 }
 
-.tab-content {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+.import-stage {
+  padding: 18px;
+}
+
+.image-import {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 16px;
+  min-height: 100%;
 }
 
 .params {
-  display: flex;
-  gap: 20px;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(90px, 1fr));
+  gap: 10px;
 }
 
 .param {
@@ -337,47 +381,74 @@ function parseDataInput() {
 
 .param label {
   font-size: 0.85rem;
-  color: #999;
+  color: var(--muted);
 }
 
 .param input {
-  width: 80px;
+  width: 100%;
+  min-height: 42px;
   padding: 8px;
-  border: 1px solid #333;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #1a1a2e;
-  color: #fff;
+  background: var(--panel-3);
+  color: var(--text);
   text-align: center;
 }
 
 .drop-zone {
-  border: 2px dashed #444;
-  border-radius: 12px;
-  padding: 50px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  min-height: 410px;
+  padding: 42px;
   text-align: center;
   cursor: pointer;
   transition: all 0.3s;
+  display: grid;
+  place-items: center;
+  background: var(--panel-3);
 }
 
 .drop-zone:hover,
 .drop-zone.dragging {
-  border-color: #667eea;
-  background: rgba(102, 126, 234, 0.1);
+  border-color: var(--primary);
+  background: rgba(32, 201, 151, 0.08);
 }
 
 .drop-zone.loading {
   pointer-events: none;
 }
 
-.placeholder .icon {
-  font-size: 2.5rem;
-  margin-bottom: 10px;
+.file-icon {
+  width: 42px;
+  height: 50px;
+  margin: 0 auto 12px;
+  border: 2px solid var(--primary);
+  border-radius: 6px;
+  position: relative;
 }
 
-.placeholder .sub {
-  font-size: 0.85rem;
-  color: #666;
-  margin-top: 5px;
+.file-icon::after {
+  content: '';
+  position: absolute;
+  right: -2px;
+  top: -2px;
+  width: 14px;
+  height: 14px;
+  background: var(--panel);
+  border-left: 2px solid var(--primary);
+  border-bottom: 2px solid var(--primary);
+  border-radius: 0 6px 0 6px;
+}
+
+.placeholder {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+
+.placeholder span {
+  font-size: 0.9rem;
+  color: var(--muted);
 }
 
 .loading {
@@ -390,8 +461,8 @@ function parseDataInput() {
 .spinner {
   width: 36px;
   height: 36px;
-  border: 3px solid #333;
-  border-top-color: #667eea;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -400,42 +471,48 @@ function parseDataInput() {
   to { transform: rotate(360deg); }
 }
 
-/* 数据导入 */
 .data-import {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-rows: 1fr auto;
+  gap: 14px;
+  min-height: 100%;
 }
 
-.hint {
-  color: #999;
+.format-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-3);
+}
+
+.format-block p {
+  color: var(--muted);
   font-size: 0.9rem;
 }
 
-.format-list {
-  margin: 0;
-  padding-left: 20px;
-  color: #888;
-  font-size: 0.85rem;
-}
-
-.format-list code {
-  background: #1a1a2e;
-  padding: 2px 6px;
+.format-block code {
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  padding: 8px;
   border-radius: 4px;
-  color: #a8e6cf;
+  color: #b7f5df;
 }
 
 textarea {
   width: 100%;
   padding: 15px;
-  border: 1px solid #333;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #1a1a2e;
-  color: #fff;
+  background: var(--panel-3);
+  color: var(--text);
   font-family: 'Consolas', monospace;
   font-size: 0.9rem;
   resize: vertical;
+  grid-row: span 2;
 }
 
 /* 预览模式 */
@@ -452,11 +529,11 @@ textarea {
 }
 
 .preview-header h3 {
-  color: #667eea;
+  color: var(--primary);
 }
 
 .preview-info {
-  color: #999;
+  color: var(--muted);
 }
 
 .preview-content {
@@ -467,7 +544,8 @@ textarea {
 
 .preview-image {
   position: relative;
-  background: #0a0a1a;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
   display: flex;
@@ -492,14 +570,15 @@ textarea {
 }
 
 .preview-data {
-  background: #1a1a2e;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 15px;
 }
 
 .preview-data h4 {
   margin-bottom: 10px;
-  color: #999;
+  color: var(--muted);
   font-size: 0.9rem;
 }
 
@@ -515,20 +594,20 @@ textarea {
   display: flex;
   gap: 10px;
   padding: 5px 8px;
-  background: #16213e;
+  background: var(--panel-3);
   border-radius: 4px;
   font-size: 0.8rem;
   font-family: monospace;
 }
 
 .data-item .num {
-  color: #667eea;
+  color: var(--primary);
   min-width: 25px;
 }
 
 .data-more {
   text-align: center;
-  color: #666;
+  color: var(--muted);
   font-size: 0.85rem;
   padding: 10px;
 }
@@ -542,7 +621,7 @@ textarea {
 /* 按钮 */
 .btn {
   padding: 12px 30px;
-  border: none;
+  border: 1px solid var(--border);
   border-radius: 8px;
   cursor: pointer;
   font-size: 1rem;
@@ -555,22 +634,24 @@ textarea {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: #fff;
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #06110d;
+  font-weight: 600;
 }
 
 .btn-primary:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 8px 18px rgba(32, 201, 151, 0.18);
 }
 
 .btn-secondary {
-  background: #333;
-  color: #fff;
+  background: var(--panel-2);
+  color: var(--text);
 }
 
 .btn-secondary:hover {
-  background: #444;
+  background: #1b2834;
 }
 
 .error {
@@ -583,6 +664,15 @@ textarea {
 }
 
 @media (max-width: 700px) {
+  .import-grid,
+  .data-import {
+    grid-template-columns: 1fr;
+  }
+
+  .params {
+    grid-template-columns: 1fr;
+  }
+
   .preview-content {
     grid-template-columns: 1fr;
   }

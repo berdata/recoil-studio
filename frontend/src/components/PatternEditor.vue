@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
-import { api, type Point, type RecoilData } from '../api'
+import { api, type FireRateSegment, type Point, type RecoilData } from '../api'
 
 const props = defineProps<{
   points: Point[]
@@ -12,7 +12,14 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   update: [pattern: RecoilData[]]
-  addGun: [gun: { name: string; rpm: number; vertical_mul: number; horizontal_mul: number; pattern: RecoilData[] }]
+  addGun: [gun: {
+    name: string
+    rpm: number
+    rpm_segments?: FireRateSegment[]
+    vertical_mul: number
+    horizontal_mul: number
+    pattern: RecoilData[]
+  }]
   back: []
 }>()
 
@@ -57,6 +64,11 @@ const maxHistory = 50
 // 枪械配置
 const gunName = ref('AK-47')
 const gunRpm = ref(600)
+const isMultiRpm = ref(false)
+const rpmSegments = ref<FireRateSegment[]>([
+  { end_bullet: 3, rpm: 700 },
+  { end_bullet: null, rpm: 600 }
+])
 const verticalMul = ref(1.0)
 const horizontalMul = ref(1.0)
 
@@ -373,8 +385,8 @@ function draw() {
   
   // 绘制框选区域
   if (isBoxSelecting.value && boxSelectStart.value && boxSelectEnd.value) {
-    ctx.strokeStyle = 'rgba(102, 126, 234, 0.8)'
-    ctx.fillStyle = 'rgba(102, 126, 234, 0.1)'
+    ctx.strokeStyle = 'rgba(32, 201, 151, 0.8)'
+    ctx.fillStyle = 'rgba(32, 201, 151, 0.1)'
     ctx.lineWidth = 1
     ctx.setLineDash([5, 5])
     
@@ -419,7 +431,7 @@ function drawPattern(ctx: CanvasRenderingContext2D) {
   ctx.scale(zoom.value, zoom.value)
   
   // 绘制连线
-  ctx.strokeStyle = 'rgba(102, 126, 234, 0.6)'
+  ctx.strokeStyle = 'rgba(32, 201, 151, 0.6)'
   ctx.lineWidth = 2 / zoom.value
   ctx.beginPath()
   localPoints.value.forEach((point, i) => {
@@ -449,7 +461,7 @@ function drawPattern(ctx: CanvasRenderingContext2D) {
     // 外圈
     ctx.beginPath()
     ctx.arc(point.x, point.y, radius, 0, Math.PI * 2)
-    ctx.fillStyle = isSelected ? '#ff6b6b' : isHovered ? '#a8e6cf' : '#667eea'
+    ctx.fillStyle = isSelected ? '#ff6b6b' : isHovered ? '#f59f00' : '#20c997'
     ctx.fill()
     
     // 内圈
@@ -478,7 +490,7 @@ function drawSelectionBox(ctx: CanvasRenderingContext2D) {
   const handles = getHandlePositions(bounds)
   
   // 绘制边界框
-  ctx.strokeStyle = 'rgba(88, 166, 255, 0.8)'
+  ctx.strokeStyle = 'rgba(32, 201, 151, 0.8)'
   ctx.lineWidth = 1
   ctx.setLineDash([4, 4])
   
@@ -494,7 +506,7 @@ function drawSelectionBox(ctx: CanvasRenderingContext2D) {
   const handleSize = 8
   const handleStyle = {
     fill: '#fff',
-    stroke: '#58a6ff',
+    stroke: '#20c997',
     lineWidth: 2
   }
   
@@ -866,15 +878,78 @@ async function recalculatePattern() {
 }
 
 // 添加枪械
+function addRpmSegment() {
+  const finiteEnds = rpmSegments.value
+    .map(segment => segment.end_bullet)
+    .filter((value): value is number => typeof value === 'number')
+  const nextEnd = Math.max(0, ...finiteEnds) + 3
+  const lastSegment = rpmSegments.value[rpmSegments.value.length - 1]
+
+  if (lastSegment) {
+    lastSegment.end_bullet = nextEnd
+  }
+
+  rpmSegments.value.push({ end_bullet: null, rpm: gunRpm.value })
+}
+
+function removeRpmSegment(index: number) {
+  if (rpmSegments.value.length <= 2) return
+
+  rpmSegments.value.splice(index, 1)
+  const lastSegment = rpmSegments.value[rpmSegments.value.length - 1]
+  if (lastSegment) {
+    lastSegment.end_bullet = null
+  }
+}
+
+function buildRpmSegments(): FireRateSegment[] | null {
+  if (!isMultiRpm.value) return []
+
+  const segments: FireRateSegment[] = []
+  let previousEnd = 0
+
+  for (let i = 0; i < rpmSegments.value.length; i++) {
+    const segment = rpmSegments.value[i]
+    if (!segment) continue
+
+    const rpm = Math.round(Number(segment.rpm))
+    if (!Number.isFinite(rpm) || rpm < 100 || rpm > 1500) {
+      alert(`第 ${i + 1} 段射速需要在 100-1500 RPM 之间`)
+      return null
+    }
+
+    // 多段射速按“截止发数递增 + 最后一段无限延续”保存，后端 Lua 可按当前子弹直接匹配。
+    if (i < rpmSegments.value.length - 1) {
+      const endBullet = Math.floor(Number(segment.end_bullet))
+      if (!Number.isFinite(endBullet) || endBullet <= previousEnd) {
+        alert(`第 ${i + 1} 段截止发数必须大于上一段`)
+        return null
+      }
+
+      segments.push({ end_bullet: endBullet, rpm })
+      previousEnd = endBullet
+    } else {
+      segments.push({ end_bullet: null, rpm })
+    }
+  }
+
+  return segments
+}
+
 function handleAddGun() {
   if (!gunName.value.trim()) {
     alert('请输入枪械名称')
     return
   }
+
+  const rpmConfig = buildRpmSegments()
+  if (rpmConfig === null) return
+  const primaryRpm = rpmConfig.length > 0 && rpmConfig[0] ? rpmConfig[0].rpm : gunRpm.value
   
   emit('addGun', {
     name: gunName.value.trim(),
-    rpm: gunRpm.value,
+    rpm: primaryRpm,
+    rpm_segments: rpmConfig.length > 0 ? rpmConfig : undefined,
     vertical_mul: verticalMul.value,
     horizontal_mul: horizontalMul.value,
     pattern: localPattern.value
@@ -964,10 +1039,12 @@ function copyLuaCode() {
         </div>
       </div>
       
-      <!-- 右侧：配置面板 -->
       <div class="config-panel">
-        <div class="panel-section">
-          <h3>输出缩放</h3>
+        <div class="panel-section compact-section">
+          <div class="section-head">
+            <span>输出校准</span>
+            <small>{{ localPattern.length }} 发</small>
+          </div>
           <div class="scale-inputs">
             <div class="input-group">
               <label>X轴</label>
@@ -980,16 +1057,61 @@ function copyLuaCode() {
           </div>
         </div>
         
-        <div class="panel-section">
-          <h3>枪械配置</h3>
+        <div class="panel-section gun-section">
+          <div class="section-head">
+            <span>枪械参数</span>
+            <small>生成宏前确认</small>
+          </div>
           <div class="input-group">
             <label>名称</label>
             <input type="text" v-model="gunName" placeholder="AK-47" />
           </div>
-          <div class="input-group">
+
+          <div class="rate-mode">
+            <label>是否多段射速</label>
+            <select v-model="isMultiRpm">
+              <option :value="false">否：整把枪固定 RPM</option>
+              <option :value="true">是：按子弹区间设置 RPM</option>
+            </select>
+          </div>
+
+          <div v-if="!isMultiRpm" class="input-group rpm-single">
             <label>射速 (RPM)</label>
             <input type="number" v-model.number="gunRpm" min="100" max="1500" />
           </div>
+
+          <div v-else class="rpm-segments">
+            <div class="segment-header">
+              <span>射速分段表</span>
+              <button class="inline-btn" type="button" @click="addRpmSegment">添加段</button>
+            </div>
+            <div v-for="(segment, i) in rpmSegments" :key="i" class="segment-row">
+              <div class="input-group">
+                <label>{{ i === rpmSegments.length - 1 ? '后续范围' : '截止到第几发' }}</label>
+                <input
+                  v-if="i < rpmSegments.length - 1"
+                  type="number"
+                  v-model.number="segment.end_bullet"
+                  min="1"
+                />
+                <input v-else type="text" value="之后" disabled />
+              </div>
+              <div class="input-group">
+                <label>RPM</label>
+                <input type="number" v-model.number="segment.rpm" min="100" max="1500" />
+              </div>
+              <button
+                class="segment-remove"
+                type="button"
+                :disabled="rpmSegments.length <= 2"
+                @click="removeRpmSegment(i)"
+                title="删除分段"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+
           <div class="input-row">
             <div class="input-group">
               <label>垂直倍率</label>
@@ -1029,8 +1151,8 @@ function copyLuaCode() {
 
 .editor-layout {
   display: grid;
-  grid-template-columns: 1fr 380px;
-  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) 420px;
+  gap: 16px;
   height: 100%;
 }
 
@@ -1038,8 +1160,9 @@ function copyLuaCode() {
 .canvas-section {
   display: flex;
   flex-direction: column;
-  background: #0d1117;
+  background: var(--panel-3);
   border-radius: 8px;
+  border: 1px solid var(--border);
   overflow: hidden;
   min-height: 0;
 }
@@ -1048,9 +1171,9 @@ function copyLuaCode() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 15px;
-  background: #161b22;
-  border-bottom: 1px solid #30363d;
+  padding: 12px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
@@ -1063,17 +1186,17 @@ function copyLuaCode() {
 .divider {
   width: 1px;
   height: 20px;
-  background: #30363d;
+  background: var(--border);
   margin: 0 8px;
 }
 
 .tool-btn {
-  width: 32px;
-  height: 32px;
-  border: 1px solid #30363d;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #21262d;
-  color: #c9d1d9;
+  background: var(--panel);
+  color: var(--text);
   cursor: pointer;
   font-size: 1.1rem;
   display: flex;
@@ -1083,8 +1206,8 @@ function copyLuaCode() {
 }
 
 .tool-btn:hover:not(:disabled) {
-  background: #30363d;
-  border-color: #8b949e;
+  background: #1b2834;
+  border-color: var(--primary);
 }
 
 .tool-btn:disabled {
@@ -1096,12 +1219,12 @@ function copyLuaCode() {
   min-width: 50px;
   text-align: center;
   font-size: 0.85rem;
-  color: #8b949e;
+  color: var(--muted);
 }
 
 .tool-info {
   font-size: 0.85rem;
-  color: #8b949e;
+  color: var(--muted);
 }
 
 .canvas-container {
@@ -1120,10 +1243,10 @@ canvas {
   flex-wrap: wrap;
   gap: 12px;
   padding: 8px 15px;
-  background: #161b22;
-  border-top: 1px solid #30363d;
+  background: var(--panel-2);
+  border-top: 1px solid var(--border);
   font-size: 0.75rem;
-  color: #6e7681;
+  color: var(--muted);
   flex-shrink: 0;
 }
 
@@ -1135,24 +1258,42 @@ canvas {
 .config-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   overflow: hidden;
   min-height: 0;
 }
 
 .panel-section {
-  background: #161b22;
+  background: rgba(20, 28, 36, 0.86);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 12px 15px;
+  padding: 14px;
   flex-shrink: 0;
 }
 
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.section-head span,
 .panel-section h3 {
-  font-size: 0.8rem;
-  color: #8b949e;
-  margin-bottom: 10px;
+  font-size: 0.82rem;
+  color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
+}
+
+.section-head small {
+  color: var(--muted-2);
+  font-size: 0.72rem;
+}
+
+.gun-section {
+  display: grid;
+  gap: 10px;
 }
 
 .lua-section {
@@ -1177,23 +1318,23 @@ canvas {
 .copy-btn {
   padding: 4px 10px;
   font-size: 0.75rem;
-  background: #21262d;
-  border: 1px solid #30363d;
+  background: var(--panel);
+  border: 1px solid var(--border);
   border-radius: 4px;
-  color: #8b949e;
+  color: var(--muted);
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .copy-btn:hover {
-  background: #30363d;
-  color: #c9d1d9;
+  background: #1b2834;
+  color: var(--text);
 }
 
 .lua-code-wrapper {
   flex: 1;
   overflow: auto;
-  background: #0d1117;
+  background: var(--panel-3);
   border-radius: 6px;
   min-height: 0;
 }
@@ -1204,7 +1345,7 @@ canvas {
   font-family: 'Consolas', 'Monaco', monospace;
   font-size: 0.75rem;
   line-height: 1.5;
-  color: #c9d1d9;
+  color: var(--text);
   white-space: pre;
   overflow-x: auto;
 }
@@ -1227,27 +1368,127 @@ canvas {
 
 .input-group label {
   font-size: 0.75rem;
-  color: #8b949e;
+  color: var(--muted);
 }
 
-.input-group input {
-  padding: 6px 10px;
-  border: 1px solid #30363d;
+.input-group input,
+.input-group select {
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #0d1117;
-  color: #c9d1d9;
+  background: var(--panel-3);
+  color: var(--text);
   font-size: 0.85rem;
 }
 
-.input-group input:focus {
+.input-group input:focus,
+.input-group select:focus {
   outline: none;
-  border-color: #58a6ff;
+  border-color: var(--primary);
+}
+
+.input-group input:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .input-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+.rate-mode {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid rgba(39, 214, 163, 0.28);
+  border-radius: 8px;
+  background: rgba(39, 214, 163, 0.08);
+}
+
+.rate-mode label {
+  font-size: 0.8rem;
+  color: var(--primary);
+}
+
+.rate-mode select {
+  min-height: 42px;
+  border: 1px solid rgba(39, 214, 163, 0.42);
+  border-radius: 6px;
+  background: var(--panel-3);
+  color: var(--text);
+  padding: 0 10px;
+}
+
+.rpm-single {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-3);
+}
+
+.rpm-segments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-3);
+}
+
+.segment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.segment-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 32px;
+  gap: 8px;
+  align-items: end;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.inline-btn,
+.segment-remove {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.inline-btn {
+  min-height: 30px;
+  padding: 0 10px;
+  color: var(--primary);
+}
+
+.segment-remove {
+  width: 32px;
+  height: 32px;
+  color: var(--danger);
+  font-size: 1.1rem;
+}
+
+.inline-btn:hover,
+.segment-remove:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: #1b2834;
+}
+
+.segment-remove:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 /* 按钮 */
@@ -1268,23 +1509,24 @@ canvas {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: #fff;
+  background: var(--primary);
+  color: #06110d;
+  font-weight: 600;
 }
 
 .btn-primary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 8px 18px rgba(32, 201, 151, 0.18);
 }
 
 .btn-secondary {
-  background: #21262d;
-  color: #c9d1d9;
-  border: 1px solid #30363d;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
 }
 
 .btn-secondary:hover {
-  background: #30363d;
+  background: #1b2834;
 }
 
 @media (max-width: 900px) {

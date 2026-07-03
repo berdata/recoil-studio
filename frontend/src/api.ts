@@ -12,6 +12,11 @@ export interface RecoilData {
   x: number
 }
 
+export interface FireRateSegment {
+  end_bullet: number | null
+  rpm: number
+}
+
 export interface PatternDetectResponse {
   success: boolean
   message: string
@@ -24,6 +29,7 @@ export interface PatternDetectResponse {
 export interface GunConfig {
   name: string
   rpm: number
+  rpm_segments?: FireRateSegment[]
   vertical_mul: number
   horizontal_mul: number
   scope_zoom: number

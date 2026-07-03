@@ -17,6 +17,12 @@ class RecoilData(BaseModel):
     x: float = Field(..., description="水平后坐力")
 
 
+class FireRateSegment(BaseModel):
+    """多段射速配置"""
+    end_bullet: Optional[int] = Field(default=None, description="该段截止发数，空表示之后所有子弹")
+    rpm: int = Field(default=600, description="该段每分钟射速")
+
+
 class PatternDetectRequest(BaseModel):
     """弹道识别请求参数"""
     scale_x: float = Field(default=1.0, description="X轴缩放倍率")
@@ -38,6 +44,7 @@ class GunConfig(BaseModel):
     """枪械配置"""
     name: str = Field(..., description="枪械名称")
     rpm: int = Field(default=600, description="每分钟射速")
+    rpm_segments: Optional[List[FireRateSegment]] = Field(default=None, description="多段射速配置")
     vertical_mul: float = Field(default=1.0, description="垂直倍率")
     horizontal_mul: float = Field(default=1.0, description="水平倍率")
     scope_zoom: float = Field(default=1.0, description="瞄准镜倍率 (1=机瞄/无倍镜)")

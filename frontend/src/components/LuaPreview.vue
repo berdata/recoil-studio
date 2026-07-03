@@ -45,6 +45,20 @@ function copyToClipboard() {
   alert('已复制到剪贴板')
 }
 
+function formatRpm(gun: GunConfig) {
+  if (!gun.rpm_segments?.length) {
+    return `${gun.rpm} RPM`
+  }
+
+  // 多段射速压缩成一行摘要，避免枪械列表在多段配置时过高。
+  return gun.rpm_segments
+    .map(segment => segment.end_bullet === null
+      ? `之后 ${segment.rpm}`
+      : `≤${segment.end_bullet} 发 ${segment.rpm}`
+    )
+    .join(' / ')
+}
+
 async function downloadLua() {
   try {
     const blob = await api.downloadLua(props.guns, sens.value)
@@ -62,15 +76,18 @@ async function downloadLua() {
 
 <template>
   <div class="lua-preview">
-    <div class="sidebar">
-      <h3>已添加的枪械</h3>
+    <aside class="export-panel">
+      <div class="export-head">
+        <span>Export Console</span>
+        <h3>脚本配置</h3>
+      </div>
       
       <div class="guns-list">
         <div v-for="(gun, i) in guns" :key="i" class="gun-item">
           <div class="gun-info">
             <div class="gun-name">{{ gun.name }}</div>
             <div class="gun-stats">
-              {{ gun.rpm }} RPM | {{ gun.pattern.length }} 发 | {{ gun.scope_zoom }}x
+              {{ formatRpm(gun) }} | {{ gun.pattern.length }} 发 | {{ gun.scope_zoom }}x
             </div>
           </div>
           <button class="remove-btn" @click="emit('remove', i)">✕</button>
@@ -78,7 +95,7 @@ async function downloadLua() {
       </div>
       
       <button class="btn btn-secondary" @click="emit('back')">
-        ← 添加更多枪械
+        添加更多枪械
       </button>
 
       <div class="sens-section">
@@ -122,17 +139,20 @@ async function downloadLua() {
           </div>
         </div>
       </div>
-    </div>
+    </aside>
     
     <div class="code-section">
       <div class="code-header">
-        <h3>生成的 Lua 代码</h3>
+        <div>
+          <span>Lua Output</span>
+          <h3>生成的宏脚本</h3>
+        </div>
         <div class="code-actions">
           <button class="btn btn-small" @click="copyToClipboard">
-            📋 复制
+            复制
           </button>
           <button class="btn btn-small btn-primary" @click="downloadLua">
-            ⬇️ 下载
+            下载
           </button>
         </div>
       </div>
@@ -149,20 +169,34 @@ async function downloadLua() {
 <style scoped>
 .lua-preview {
   display: grid;
-  grid-template-columns: 300px 1fr;
-  gap: 20px;
-  min-height: 500px;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 16px;
+  min-height: calc(100vh - 196px);
 }
 
-.sidebar {
+.export-panel {
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 14px;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+  padding: 14px;
 }
 
-.sidebar h3 {
+.export-head span,
+.code-header span {
+  color: var(--primary);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.export-head h3,
+.code-header h3 {
   margin: 0;
-  color: #667eea;
+  color: var(--text);
 }
 
 .guns-list {
@@ -177,8 +211,10 @@ async function downloadLua() {
   align-items: center;
   justify-content: space-between;
   padding: 12px;
-  background: #1a1a2e;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
   border-radius: 8px;
+  gap: 10px;
 }
 
 .gun-name {
@@ -187,29 +223,33 @@ async function downloadLua() {
 
 .gun-stats {
   font-size: 0.85rem;
-  color: #999;
+  color: var(--muted);
   margin-top: 3px;
+  line-height: 1.45;
 }
 
 .remove-btn {
   width: 28px;
   height: 28px;
   border: none;
-  border-radius: 50%;
-  background: #f66;
+  border-radius: 6px;
+  background: rgba(255, 107, 107, 0.14);
+  border: 1px solid rgba(255, 107, 107, 0.35);
   color: #fff;
   cursor: pointer;
   font-size: 0.9rem;
+  flex-shrink: 0;
 }
 
 .remove-btn:hover {
-  background: #e55;
+  background: rgba(255, 107, 107, 0.28);
 }
 
 .code-section {
   display: flex;
   flex-direction: column;
-  background: #0a0a1a;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -218,12 +258,9 @@ async function downloadLua() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 15px 20px;
-  background: #1a1a2e;
-}
-
-.code-header h3 {
-  margin: 0;
+  padding: 16px 18px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
 }
 
 .code-actions {
@@ -233,10 +270,12 @@ async function downloadLua() {
 
 .btn {
   padding: 8px 16px;
-  border: none;
+  border: 1px solid var(--border);
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.9rem;
+  background: var(--panel);
+  color: var(--text);
 }
 
 .btn-small {
@@ -245,33 +284,36 @@ async function downloadLua() {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: #fff;
+  background: var(--primary);
+  color: #06110d;
+  border-color: var(--primary);
+  font-weight: 600;
 }
 
 .btn-secondary {
-  background: #333;
-  color: #fff;
+  background: var(--panel-2);
+  color: var(--text);
 }
 
 .btn-secondary:hover {
-  background: #444;
+  background: #1b2834;
 }
 
 .sens-section {
-  border-top: 1px solid #333;
+  border-top: 1px solid var(--border);
   padding-top: 15px;
+  min-height: 0;
 }
 
 .sens-section h3 {
   margin: 0 0 12px 0;
-  color: #667eea;
+  color: var(--primary);
   font-size: 0.95rem;
 }
 
 .sens-form {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
 
@@ -283,19 +325,21 @@ async function downloadLua() {
 
 .sens-field label {
   font-size: 0.8rem;
-  color: #999;
+  color: var(--muted);
 }
 
 .sens-field input {
-  padding: 6px 8px;
-  border: 1px solid #333;
+  min-height: 40px;
+  padding: 8px;
+  border: 1px solid var(--border);
   border-radius: 4px;
-  background: #1a1a2e;
-  color: #fff;
+  background: var(--panel-3);
+  color: var(--text);
   font-size: 0.85rem;
 }
 
 .sens-toggle {
+  grid-column: 1 / -1;
   flex-direction: row;
   align-items: center;
   gap: 8px;
@@ -304,13 +348,13 @@ async function downloadLua() {
 .sens-toggle input[type="checkbox"] {
   width: 16px;
   height: 16px;
-  accent-color: #667eea;
+  accent-color: var(--primary);
 }
 
 .loading {
   padding: 40px;
   text-align: center;
-  color: #666;
+  color: var(--muted);
 }
 
 .code {
@@ -321,12 +365,16 @@ async function downloadLua() {
   font-family: 'Fira Code', 'Consolas', monospace;
   font-size: 0.85rem;
   line-height: 1.5;
-  color: #a8e6cf;
+  color: #b7f5df;
   background: transparent;
 }
 
 @media (max-width: 900px) {
   .lua-preview {
+    grid-template-columns: 1fr;
+  }
+
+  .sens-form {
     grid-template-columns: 1fr;
   }
 }
